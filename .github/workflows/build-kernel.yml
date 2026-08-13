@@ -129,6 +129,9 @@ jobs:
           echo "--- applying KernelSU v1.0.2 sepolicy fix (<5.9 guard) ---"
           curl -sL "https://raw.githubusercontent.com/cepeter/kernel-fogos-g45/android-13-release-ttz/susfs-ksu10-sepolicy-fix.patch" -o susfs-ksu10-sepolicy-fix.patch
           git apply susfs-ksu10-sepolicy-fix.patch
+          echo "--- applying KernelSU v1.0.2 rules fix (5.4 ss->policydb) ---"
+          curl -sL "https://raw.githubusercontent.com/cepeter/kernel-fogos-g45/android-13-release-ttz/susfs-ksu10-rules-fix.patch" -o susfs-ksu10-rules-fix.patch
+          git apply susfs-ksu10-rules-fix.patch
           grep -q "CONFIG_KSU_SUSFS" KernelSU/kernel/Kconfig && echo "KSU_SUSFS_KCONFIG_OK"
           echo "SUSFS_OK"
 
