@@ -128,9 +128,12 @@ jobs:
           git apply susfs-5.4-moto-fix.patch
           # --- KSU driver side (classic KernelSU dir at kernel root) ---
           cp susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch KernelSU/
-          echo "--- applying 10_enable_susfs_for_ksu.patch (in KernelSU/) ---"
-          cd KernelSU && patch -p1 --forward < 10_enable_susfs_for_ksu.patch
+          echo "--- applying 10_enable_susfs_for_ksu.patch (in KernelSU/, 1 known reject fixed next) ---"
+          cd KernelSU && patch -p1 --forward < 10_enable_susfs_for_ksu.patch || true
           cd ..
+          echo "--- applying KernelSU v1.0.2 core_hook fix ---"
+          curl -sL "https://raw.githubusercontent.com/cepeter/kernel-fogos-g45/android-13-release-ttz/susfs-ksu10-moto-fix.patch" -o susfs-ksu10-moto-fix.patch
+          git apply susfs-ksu10-moto-fix.patch
           grep -q "CONFIG_KSU_SUSFS" KernelSU/kernel/Kconfig && echo "KSU_SUSFS_KCONFIG_OK"
           echo "SUSFS_OK"
 
