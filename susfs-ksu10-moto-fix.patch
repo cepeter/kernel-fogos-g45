@@ -32,3 +32,11 @@
 +#endif
 +
  int ksu_handle_setuid(struct cred *new, const struct cred *old)
+--- a/KernelSU/kernel/Makefile
++++ b/KernelSU/kernel/Makefile
+@@ -1,3 +1,5 @@
++# Motorola msm-5.4 already defines current_sid() in security/selinux/include/objsec.h
++ccflags-y += -DKSU_COMPAT_HAS_CURRENT_SID
+ kernelsu-objs := ksu.o
+ kernelsu-objs += allowlist.o
+ kernelsu-objs += apk_sign.o
