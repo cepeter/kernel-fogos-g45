@@ -124,6 +124,7 @@ jobs:
           echo "--- applying 50_add_susfs_in_kernel-5.4.patch (4 known rejects, fixed next) ---"
           patch -p1 --forward < 50_add_susfs_in_kernel-5.4.patch || true
           echo "--- applying Motorola-specific fix ---"
+          curl -sL "https://raw.githubusercontent.com/cepeter/kernel-fogos-g45/android-13-release-ttz/susfs-5.4-moto-fix.patch" -o susfs-5.4-moto-fix.patch
           git apply susfs-5.4-moto-fix.patch
           # --- KSU driver side (classic KernelSU dir at kernel root) ---
           cp susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch KernelSU/
