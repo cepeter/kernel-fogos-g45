@@ -61,7 +61,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: prebuilts
-          key: tc-v2-${{ runner.arch }}
+          key: tc-v3-${{ runner.arch }}
 
       - name: Cache ccache
         id: cache-ccache
@@ -72,23 +72,15 @@ jobs:
           restore-keys: |
             ccache-${{ inputs.tag }}-${{ inputs.variant }}-
 
-      - name: Download AOSP Clang (fallback list)
+      - name: Download Clang 16.0.6 (ZyCromerZ — known-good for 5.4)
         if: steps.cache-tc.outputs.cache-hit != 'true'
         run: |
           set -e
-          for CV in clang-r530567 clang-r522817 clang-r536225 clang-r547379; do
-            echo "Trying ${CV} ..."
-            mkdir -p "prebuilts/clang/host/linux-x86/${CV}"
-            if curl -L --fail --silent --show-error \
-                "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/master/${CV}.tar.gz" \
-                | tar -xz -C "prebuilts/clang/host/linux-x86/${CV}"; then
-              echo "Downloaded ${CV}"
-              break
-            fi
-            echo "Failed ${CV}, trying next..."
-          done
-          ls prebuilts/clang/host/linux-x86/
-          ls -d prebuilts/clang/host/linux-x86/clang-r*/bin >/dev/null && echo "CLANG_OK"
+          mkdir -p prebuilts/clang/host/linux-x86/clang16
+          curl -L --fail --silent --show-error \
+            "https://github.com/ZyCromerZ/Clang/releases/download/16.0.6-20260807-release/Clang-16.0.6-20260807.tar.gz" \
+            | tar -xz -C prebuilts/clang/host/linux-x86/clang16/
+          ls -d prebuilts/clang/host/linux-x86/clang16/bin >/dev/null && echo "CLANG_OK"
 
       - name: Install ccache
         run: |
@@ -97,7 +89,7 @@ jobs:
 
       - name: Resolve toolchain paths
         run: |
-          CLANG_BIN="$(echo ${GITHUB_WORKSPACE}/prebuilts/clang/host/linux-x86/clang-r*/bin | awk '{print $1}')"
+          CLANG_BIN="$(echo ${GITHUB_WORKSPACE}/prebuilts/clang/host/linux-x86/clang*/bin | awk '{print $1}')"
           echo "CLANG_BIN=${CLANG_BIN}" >> "$GITHUB_ENV"
           echo "Resolved: CLANG_BIN=${CLANG_BIN}"
 
@@ -176,6 +168,7 @@ jobs:
 
       - name: Build kernel
         run: |
+          set -o pipefail
           export PATH="${CLANG_BIN}:/usr/lib/ccache:$PATH"
           export CLANG_TRIPLE=aarch64-linux-gnu-
           export CCACHE=1
@@ -184,7 +177,7 @@ jobs:
             LLVM=1 LLVM_IAS=1 -j$(nproc) 2>&1 | tee build.log
           echo "--- outputs ---"
           ls -la arch/arm64/boot/
-          find arch/arm64/boot/dts -name "*.dtb" 2>/dev/null | head -20
+          test -f arch/arm64/boot/Image -o -f arch/arm64/boot/Image.gz || { echo "NO_KERNEL_IMAGE"; exit 1; }
           echo "BUILD_DONE"
 
       - name: Package outputs
