@@ -47,10 +47,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       ARCH: arm64
-      CLANG_VERSION: clang-r450784d
-      CLANG_BIN: ${{ github.workspace }}/prebuilts/clang/host/linux-x86/clang-r450784d/bin
-      GCC_BIN: ${{ github.workspace }}/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin
-      GCC_ARM_BIN: ${{ github.workspace }}/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9/bin
       CCACHE_DIR: ${{ github.workspace }}/.ccache
     steps:
       - name: Checkout kernel source
@@ -81,13 +77,22 @@ jobs:
           restore-keys: |
             ccache-${{ inputs.tag }}-${{ inputs.variant }}-
 
-      - name: Download AOSP Clang ${{ env.CLANG_VERSION }}
+      - name: Download AOSP Clang (fallback list)
         if: steps.cache-tc.outputs.cache-hit != 'true'
         run: |
-          curl -L --fail \
-            "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/master/${CLANG_VERSION}.tar.gz" \
-            | tar -xz -C prebuilts/clang/host/linux-x86/
+          set -e
+          for CV in clang-r530567 clang-r522817 clang-r536225 clang-r547379; do
+            echo "Trying ${CV} ..."
+            if curl -L --fail --silent --show-error \
+                "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/master/${CV}.tar.gz" \
+                | tar -xz -C prebuilts/clang/host/linux-x86/; then
+              echo "Downloaded ${CV}"
+              break
+            fi
+            echo "Failed ${CV}, trying next..."
+          done
           ls prebuilts/clang/host/linux-x86/
+          ls -d prebuilts/clang/host/linux-x86/clang-r*/bin >/dev/null && echo "CLANG_OK"
 
       - name: Download AOSP GCC 4.9 (aarch64 + arm)
         if: steps.cache-tc.outputs.cache-hit != 'true'
@@ -103,6 +108,14 @@ jobs:
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq ccache zip
           ccache --version | head -1
+
+      - name: Resolve toolchain paths
+        run: |
+          CLANG_BIN="$(echo ${GITHUB_WORKSPACE}/prebuilts/clang/host/linux-x86/clang-r*/bin | awk '{print $1}')"
+          echo "CLANG_BIN=${CLANG_BIN}" >> "$GITHUB_ENV"
+          echo "GCC_BIN=${GITHUB_WORKSPACE}/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin" >> "$GITHUB_ENV"
+          echo "GCC_ARM_BIN=${GITHUB_WORKSPACE}/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9/bin" >> "$GITHUB_ENV"
+          echo "Resolved: CLANG_BIN=${CLANG_BIN}"
 
       - name: Setup toolchain env + androidkernel symlinks
         run: |
