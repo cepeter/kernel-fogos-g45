@@ -3,6 +3,9 @@ name: Build SUSFS Userspace (ksu_susfs tool + module)
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 concurrency:
   group: susfs-userspace
   cancel-in-progress: true
