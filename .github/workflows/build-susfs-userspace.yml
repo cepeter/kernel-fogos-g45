@@ -1,0 +1,65 @@
+name: Build SUSFS Userspace (ksu_susfs tool + module)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: susfs-userspace
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout SUSFS userspace source (kernel-5.4 branch)
+        run: |
+          git clone --depth 1 -b kernel-5.4 https://gitlab.com/simonpunk/susfs4ksu susfs4ksu
+          ls susfs4ksu/ksu_susfs/jni/
+
+      - name: Cache NDK r28
+        id: cache-ndk
+        uses: actions/cache@v4
+        with:
+          path: ndk
+          key: ndk-r28-${{ runner.arch }}
+
+      - name: Download Android NDK r28
+        if: steps.cache-ndk.outputs.cache-hit != 'true'
+        run: |
+          curl -L --fail --silent --show-error \
+            "https://dl.google.com/android/repository/android-ndk-r28-linux.zip" -o ndk.zip
+          unzip -q ndk.zip
+          mv android-ndk-r28 ndk
+          rm -f ndk.zip
+          test -f ndk/ndk-build && echo "NDK_OK"
+
+      - name: Build ksu_susfs tool (arm64, static)
+        working-directory: susfs4ksu
+        run: |
+          export PATH="${{ github.workspace }}/ndk:$PATH"
+          export ANDROID_NDK_HOME="${{ github.workspace }}/ndk"
+          bash build_ksu_susfs_tool.sh
+          file ksu_module_susfs/tools/ksu_susfs_arm64
+          ls -la ksu_module_susfs/tools/
+
+      - name: Package SUSFS module zip
+        working-directory: susfs4ksu
+        run: |
+          bash build_ksu_module.sh
+          unzip -l ksu_module_susfs.zip | grep -E "module.prop|tools/ksu_susfs_arm64"
+          cp ksu_module_susfs.zip "${{ github.workspace }}/SUSFS-Module-ksu_susfs.zip"
+
+      - name: Upload module artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SUSFS-Module-ksu_susfs
+          path: SUSFS-Module-ksu_susfs.zip
+          if-no-files-found: error
+
+      - name: Publish release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.0-ksu-susfs
+          files: SUSFS-Module-ksu_susfs.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
