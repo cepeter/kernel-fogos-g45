@@ -120,9 +120,11 @@ jobs:
           # --- main kernel side ---
           cp susfs4ksu/kernel_patches/50_add_susfs_in_kernel-5.4.patch .
           cp susfs4ksu/kernel_patches/fs/susfs.c fs/
-          cp susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/
-          echo "--- applying 50_add_susfs_in_kernel-5.4.patch ---"
-          patch -p1 --forward < 50_add_susfs_in_kernel-5.4.patch
+          cp susfs4ksu/kernel_patches/include/linux/* include/linux/
+          echo "--- applying 50_add_susfs_in_kernel-5.4.patch (4 known rejects, fixed next) ---"
+          patch -p1 --forward < 50_add_susfs_in_kernel-5.4.patch || true
+          echo "--- applying Motorola-specific fix ---"
+          git apply susfs-5.4-moto-fix.patch
           # --- KSU driver side (classic KernelSU dir at kernel root) ---
           cp susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch KernelSU/
           echo "--- applying 10_enable_susfs_for_ksu.patch (in KernelSU/) ---"
