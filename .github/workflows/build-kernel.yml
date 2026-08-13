@@ -95,16 +95,6 @@ jobs:
           ls prebuilts/clang/host/linux-x86/
           ls -d prebuilts/clang/host/linux-x86/clang-r*/bin >/dev/null && echo "CLANG_OK"
 
-      - name: Download AOSP GCC 4.9 (aarch64 + arm)
-        if: steps.cache-tc.outputs.cache-hit != 'true'
-        run: |
-          curl -L --fail \
-            "https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/+archive/refs/heads/master.tar.gz" \
-            | tar -xz -C prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/
-          curl -L --fail \
-            "https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9/+archive/refs/heads/master.tar.gz" \
-            | tar -xz -C prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9/
-
       - name: Install ccache
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq ccache zip
@@ -114,22 +104,13 @@ jobs:
         run: |
           CLANG_BIN="$(echo ${GITHUB_WORKSPACE}/prebuilts/clang/host/linux-x86/clang-r*/bin | awk '{print $1}')"
           echo "CLANG_BIN=${CLANG_BIN}" >> "$GITHUB_ENV"
-          echo "GCC_BIN=${GITHUB_WORKSPACE}/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin" >> "$GITHUB_ENV"
-          echo "GCC_ARM_BIN=${GITHUB_WORKSPACE}/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9/bin" >> "$GITHUB_ENV"
           echo "Resolved: CLANG_BIN=${CLANG_BIN}"
 
-      - name: Setup toolchain env + androidkernel symlinks
+      - name: Verify toolchain (pure LLVM)
         run: |
-          # Some msm trees expect aarch64-linux-androidkernel-* prefixed tools
-          cd "${GCC_BIN}"
-          for t in aarch64-linux-android-*; do
-            case "$t" in *androidkernel*) continue ;; esac
-            [ -e "${t/android-/androidkernel-}" ] || ln -sf "$t" "${t/android-/androidkernel-}"
-          done
-          ls -la "${GCC_BIN}" | head
-          echo "CLANG: $(ls ${CLANG_BIN}/clang 2>/dev/null && ${CLANG_BIN}/clang --version | head -1)"
-          echo "GCC: $(${GCC_BIN}/aarch64-linux-android-gcc --version | head -1)"
-          echo "PATH_READY"
+          ls "${CLANG_BIN}" | grep -E "^(clang|ld.lld|llvm-ar|llvm-nm|llvm-objcopy)$" || true
+          "${CLANG_BIN}/clang" --version | head -1
+          echo "LLVM_TOOLCHAIN_READY"
 
       - name: Integrate KernelSU-Next
         run: |
@@ -156,8 +137,7 @@ jobs:
           TARGET_PRODUCT: ${{ inputs.product }}
           TARGET_BUILD_VARIANT: ${{ inputs.build_variant }}
         run: |
-          export PATH="${CLANG_BIN}:${GCC_BIN}:${GCC_ARM_BIN}:$PATH"
-          export CROSS_COMPILE=aarch64-linux-androidkernel-
+          export PATH="${CLANG_BIN}:$PATH"
           export CLANG_TRIPLE=aarch64-linux-gnu-
           export REAL_CC=clang
           ./scripts/gki/generate_defconfig.sh vendor/holi-${{ inputs.variant }}_defconfig
@@ -165,9 +145,9 @@ jobs:
 
       - name: Enable KSU + SUSFS configs
         run: |
-          export PATH="${CLANG_BIN}:${GCC_BIN}:${GCC_ARM_BIN}:$PATH"
+          export PATH="${CLANG_BIN}:$PATH"
           make ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE=aarch64-linux-androidkernel- \
+            LLVM=1 LLVM_IAS=1 \
             vendor/holi-${{ inputs.variant }}_defconfig
           ./scripts/config --file .config \
             -e CONFIG_KSU \
@@ -179,17 +159,15 @@ jobs:
             -e CONFIG_KSU_SUSFS_TRY_UMOUNT \
             -e CONFIG_KSU_SUSFS_SPOOF_UNAME
           make ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE=aarch64-linux-androidkernel- olddefconfig
+            LLVM=1 LLVM_IAS=1 olddefconfig
           grep -E "CONFIG_KSU|CONFIG_KSU_SUSFS" .config | head -30
 
       - name: Build kernel
         run: |
-          export PATH="${CLANG_BIN}:${GCC_BIN}:${GCC_ARM_BIN}:/usr/lib/ccache:$PATH"
-          export CROSS_COMPILE=aarch64-linux-androidkernel-
+          export PATH="${CLANG_BIN}:/usr/lib/ccache:$PATH"
           export CLANG_TRIPLE=aarch64-linux-gnu-
           export CCACHE=1
           make ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE=aarch64-linux-androidkernel- \
             HOSTCC=gcc HOSTLD=ld HOSTAR=ar \
             LLVM=1 LLVM_IAS=1 -j$(nproc) 2>&1 | tee build.log
           echo "--- outputs ---"
@@ -206,7 +184,6 @@ jobs:
           find arch/arm64/boot/dts -name "*.dtb" -exec cp --parents {} dist/ \; 2>/dev/null || true
           # Modules (stripped)
           make ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE=aarch64-linux-androidkernel- \
             LLVM=1 LLVM_IAS=1 INSTALL_MOD_STRIP=1 \
             modules_install INSTALL_MOD_PATH=dist/modules 2>&1 | tail -5 || true
           (cd dist/modules && tar czf ../modules.tar.gz .) 2>/dev/null || true
