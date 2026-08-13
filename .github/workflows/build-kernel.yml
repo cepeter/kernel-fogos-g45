@@ -115,6 +115,13 @@ jobs:
           "${CLANG_BIN}/clang" --version | head -1
           echo "LLVM_TOOLCHAIN_READY"
 
+      - name: Apply toolchain fixes (WALT -I for clang)
+        if: inputs.susfs == 'none'
+        run: |
+          curl -sL "https://raw.githubusercontent.com/cepeter/kernel-fogos-g45/android-13-release-ttz/toolchain-walt-fix.patch" -o toolchain-walt-fix.patch
+          git apply toolchain-walt-fix.patch
+          echo "TOOLCHAIN_FIX_OK"
+
       - name: Integrate KernelSU v1.0.2 (classic layout)
         if: inputs.ksu != 'none'
         run: |
@@ -167,14 +174,17 @@ jobs:
           ./scripts/gki/generate_defconfig.sh vendor/holi-${{ inputs.variant }}_defconfig
           ls -la arch/arm64/configs/vendor/holi-${{ inputs.variant }}_defconfig
 
-      - name: Enable KernelSU configs
-        if: inputs.ksu != 'none'
+      - name: Apply defconfig
         run: |
           export PATH="${CLANG_BIN}:$PATH"
           make ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-gnu- \
             LLVM=1 LLVM_IAS=1 \
             vendor/holi-${{ inputs.variant }}_defconfig
+
+      - name: Enable KernelSU configs
+        if: inputs.ksu != 'none'
+        run: |
           ./scripts/config --file .config -e CONFIG_KSU
 
       - name: Enable SUSFS configs
