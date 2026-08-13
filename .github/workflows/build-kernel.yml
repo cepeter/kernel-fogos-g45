@@ -144,6 +144,7 @@ jobs:
         run: |
           export PATH="${CLANG_BIN}:$PATH"
           make ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-gnu- \
             LLVM=1 LLVM_IAS=1 \
             vendor/holi-${{ inputs.variant }}_defconfig
           ./scripts/config --file .config \
@@ -163,6 +164,7 @@ jobs:
             -e CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
             -e CONFIG_KSU_SUSFS_OPEN_REDIRECT
           make ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-gnu- \
             LLVM=1 LLVM_IAS=1 olddefconfig
           grep -E "CONFIG_KSU|CONFIG_KSU_SUSFS" .config | head -30
 
@@ -173,6 +175,7 @@ jobs:
           export CLANG_TRIPLE=aarch64-linux-gnu-
           export CCACHE=1
           make ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-gnu- \
             HOSTCC=gcc HOSTLD=ld HOSTAR=ar \
             LLVM=1 LLVM_IAS=1 -j$(nproc) 2>&1 | tee build.log
           echo "--- outputs ---"
@@ -189,6 +192,7 @@ jobs:
           find arch/arm64/boot/dts -name "*.dtb" -exec cp --parents {} dist/ \; 2>/dev/null || true
           # Modules (stripped)
           make ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-gnu- \
             LLVM=1 LLVM_IAS=1 INSTALL_MOD_STRIP=1 \
             modules_install INSTALL_MOD_PATH=dist/modules 2>&1 | tail -5 || true
           (cd dist/modules && tar czf ../modules.tar.gz .) 2>/dev/null || true
