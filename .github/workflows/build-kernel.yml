@@ -183,7 +183,7 @@ jobs:
           make ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-gnu- \
             HOSTCC=gcc HOSTLD=ld HOSTAR=ar \
-            KCFLAGS="-Wno-implicit-int -Wno-int-conversion" \
+            KCFLAGS="-Wno-implicit-int -Wno-int-conversion -Wno-strict-prototypes -Wno-typedef-redefinition -Wno-gnu-variable-sized-type-not-at-end -Wno-shift-negative-value" \
             LLVM=1 LLVM_IAS=1 -j$(nproc) 2>&1 | tee build.log
           echo "--- outputs ---"
           ls -la arch/arm64/boot/
