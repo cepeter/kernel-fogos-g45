@@ -1,0 +1,14 @@
+--- a/KernelSU/kernel/selinux/rules.c
++++ b/KernelSU/kernel/selinux/rules.c
+@@ -19,7 +19,11 @@
+ static struct policydb *get_policydb(void)
+ {
+ 	struct policydb *db;
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
+ 	struct selinux_policy *policy = rcu_dereference(selinux_state.policy);
+ 	db = &policy->policydb;
++#else
++	db = &selinux_state.ss->policydb;
++#endif
+ 	return db;
+ }
