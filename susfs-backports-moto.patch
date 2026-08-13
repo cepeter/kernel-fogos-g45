@@ -1,0 +1,67 @@
+--- a/fs/namespace.c
++++ b/fs/namespace.c
+@@ -1749,5 +1749,44 @@
+ 
+ #endif
+ 
++static int can_umount(const struct path *path, int flags)
++{
++	struct mount *mnt = real_mount(path->mnt);
++
++	if (flags & ~(MNT_FORCE | MNT_DETACH | MNT_EXPIRE | UMOUNT_NOFOLLOW))
++		return -EINVAL;
++
++	if (!may_mount())
++		return -EPERM;
++
++	if (path->dentry != path->mnt->mnt_root)
++		return -EINVAL;
++
++	if (!check_mnt(mnt))
++		return -EINVAL;
++
++	if (mnt->mnt.mnt_flags & MNT_LOCKED)
++		return -EINVAL;
++
++	if (flags & MNT_FORCE && !capable(CAP_SYS_ADMIN))
++		return -EPERM;
++
++	return 0;
++}
++
++int path_umount(struct path *path, int flags)
++{
++	struct mount *mnt = real_mount(path->mnt);
++	int ret;
++
++	ret = can_umount(path, flags);
++	if (!ret)
++		ret = do_umount(mnt, flags);
++
++	dput(path->dentry);
++	mntput_no_expire(mnt);
++	return ret;
++}
++
+ static bool is_mnt_ns_file(struct dentry *dentry)
+ {
+--- a/fs/internal.h
++++ b/fs/internal.h
+@@ -87,3 +87,5 @@
+ extern void __init mnt_init(void);
+ 
++int path_umount(struct path *path, int flags);
++
+ extern int __mnt_want_write_file(struct file *);
+--- a/KernelSU/kernel/kernel_compat.c
++++ b/KernelSU/kernel/kernel_compat.c
+@@ -84,5 +84,9 @@
+ long ksu_strncpy_from_user_nofault(char *dst, const void __user *unsafe_addr,
+ 				   long count)
+ {
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
+ 	return strncpy_from_user_nofault(dst, unsafe_addr, count);
++#else
++	return strncpy_from_user(dst, unsafe_addr, count);
++#endif
+ }
