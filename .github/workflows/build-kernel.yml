@@ -1,0 +1,210 @@
+name: Build Kernel (KSU-Next + SUSFS)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Kernel tag/branch to build
+        default: MMI-V1UGS35H.75-14-9-3-1-2
+        required: true
+        type: string
+      variant:
+        description: Build variant
+        default: qgki-consolidate
+        required: true
+        type: choice
+        options:
+          - qgki
+          - qgki-consolidate
+          - qgki-debug
+          - gki
+          - gki-only
+      product:
+        description: TARGET_PRODUCT (device, e.g. fogos_g)
+        default: fogos_g
+        required: true
+        type: string
+      build_variant:
+        description: TARGET_BUILD_VARIANT (user / userdebug)
+        default: userdebug
+        required: true
+        type: choice
+        options:
+          - user
+          - userdebug
+      ksu_version:
+        description: KernelSU-Next version (tag/commit, or empty = latest tag)
+        default: ""
+        required: false
+        type: string
+
+concurrency:
+  group: build-kernel-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      ARCH: arm64
+      CLANG_VERSION: clang-r450784d
+      CLANG_BIN: ${{ github.workspace }}/prebuilts/clang/host/linux-x86/clang-r450784d/bin
+      GCC_BIN: ${{ github.workspace }}/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin
+      GCC_ARM_BIN: ${{ github.workspace }}/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9/bin
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+    steps:
+      - name: Checkout kernel source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 1
+
+      - name: Prepare toolchain dirs
+        run: |
+          mkdir -p prebuilts/clang/host/linux-x86
+          mkdir -p prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9
+          mkdir -p prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9
+
+      - name: Cache toolchain
+        id: cache-tc
+        uses: actions/cache@v4
+        with:
+          path: prebuilts
+          key: tc-${{ env.CLANG_VERSION }}-gcc49-${{ runner.arch }}
+
+      - name: Cache ccache
+        id: cache-ccache
+        uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ccache-${{ inputs.tag }}-${{ inputs.variant }}-${{ github.run_id }}
+          restore-keys: |
+            ccache-${{ inputs.tag }}-${{ inputs.variant }}-
+
+      - name: Download AOSP Clang ${{ env.CLANG_VERSION }}
+        if: steps.cache-tc.outputs.cache-hit != 'true'
+        run: |
+          curl -L --fail \
+            "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/master/${CLANG_VERSION}.tar.gz" \
+            | tar -xz -C prebuilts/clang/host/linux-x86/
+          ls prebuilts/clang/host/linux-x86/
+
+      - name: Download AOSP GCC 4.9 (aarch64 + arm)
+        if: steps.cache-tc.outputs.cache-hit != 'true'
+        run: |
+          curl -L --fail \
+            "https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/+archive/refs/heads/master.tar.gz" \
+            | tar -xz -C prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/
+          curl -L --fail \
+            "https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9/+archive/refs/heads/master.tar.gz" \
+            | tar -xz -C prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9/
+
+      - name: Install ccache
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ccache zip
+          ccache --version | head -1
+
+      - name: Setup toolchain env + androidkernel symlinks
+        run: |
+          # Some msm trees expect aarch64-linux-androidkernel-* prefixed tools
+          cd "${GCC_BIN}"
+          for t in aarch64-linux-android-*; do
+            case "$t" in *androidkernel*) continue ;; esac
+            [ -e "${t/android-/androidkernel-}" ] || ln -sf "$t" "${t/android-/androidkernel-}"
+          done
+          ls -la "${GCC_BIN}" | head
+          echo "CLANG: $(ls ${CLANG_BIN}/clang 2>/dev/null && ${CLANG_BIN}/clang --version | head -1)"
+          echo "GCC: $(${GCC_BIN}/aarch64-linux-android-gcc --version | head -1)"
+          echo "PATH_READY"
+
+      - name: Integrate KernelSU-Next
+        run: |
+          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s ${{ inputs.ksu_version }}
+          ls -la KernelSU-Next | head
+          ls -la drivers/kernelsu 2>/dev/null || echo "WARN: no drivers/kernelsu symlink"
+
+      - name: Integrate SUSFS (simonpunk)
+        run: |
+          git clone --depth 1 https://gitlab.com/simonpunk/susfs4ksu susfs4ksu
+          cp susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch KernelSU-Next/
+          cp susfs4ksu/kernel_patches/50_add_susfs_in_kernel-5.4.patch .
+          cp susfs4ksu/kernel_patches/fs/susfs.c fs/
+          cp susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/
+          echo "--- applying 10_enable_susfs_for_ksu.patch (in KernelSU-Next) ---"
+          cd KernelSU-Next && patch -p1 --forward < 10_enable_susfs_for_ksu.patch
+          cd ..
+          echo "--- applying 50_add_susfs_in_kernel-5.4.patch ---"
+          patch -p1 --forward < 50_add_susfs_in_kernel-5.4.patch
+          echo "SUSFS_OK"
+
+      - name: Generate defconfig (${{ inputs.variant }})
+        env:
+          TARGET_PRODUCT: ${{ inputs.product }}
+          TARGET_BUILD_VARIANT: ${{ inputs.build_variant }}
+        run: |
+          export PATH="${CLANG_BIN}:${GCC_BIN}:${GCC_ARM_BIN}:$PATH"
+          export CROSS_COMPILE=aarch64-linux-androidkernel-
+          export CLANG_TRIPLE=aarch64-linux-gnu-
+          export REAL_CC=clang
+          ./scripts/gki/generate_defconfig.sh vendor/holi-${{ inputs.variant }}_defconfig
+          ls -la arch/arm64/configs/vendor/holi-${{ inputs.variant }}_defconfig
+
+      - name: Enable KSU + SUSFS configs
+        run: |
+          export PATH="${CLANG_BIN}:${GCC_BIN}:${GCC_ARM_BIN}:$PATH"
+          make ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-androidkernel- \
+            vendor/holi-${{ inputs.variant }}_defconfig
+          ./scripts/config --file .config \
+            -e CONFIG_KSU \
+            -e CONFIG_KSU_SUSFS \
+            -e CONFIG_KSU_SUSFS_SUS_PATH \
+            -e CONFIG_KSU_SUSFS_SUS_MOUNT \
+            -e CONFIG_KSU_SUSFS_SUS_KSTAT \
+            -e CONFIG_KSU_SUSFS_SUS_MAPS \
+            -e CONFIG_KSU_SUSFS_TRY_UMOUNT \
+            -e CONFIG_KSU_SUSFS_SPOOF_UNAME
+          make ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-androidkernel- olddefconfig
+          grep -E "CONFIG_KSU|CONFIG_KSU_SUSFS" .config | head -30
+
+      - name: Build kernel
+        run: |
+          export PATH="${CLANG_BIN}:${GCC_BIN}:${GCC_ARM_BIN}:/usr/lib/ccache:$PATH"
+          export CROSS_COMPILE=aarch64-linux-androidkernel-
+          export CLANG_TRIPLE=aarch64-linux-gnu-
+          export CCACHE=1
+          make ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-androidkernel- \
+            HOSTCC=gcc HOSTLD=ld HOSTAR=ar \
+            LLVM=1 LLVM_IAS=1 -j$(nproc) 2>&1 | tee build.log
+          echo "--- outputs ---"
+          ls -la arch/arm64/boot/
+          find arch/arm64/boot/dts -name "*.dtb" 2>/dev/null | head -20
+          echo "BUILD_DONE"
+
+      - name: Package outputs
+        run: |
+          mkdir -p dist
+          cp -f arch/arm64/boot/Image.gz dist/ 2>/dev/null || true
+          cp -f arch/arm64/boot/Image dist/ 2>/dev/null || true
+          cp -f .config dist/kernel.config
+          find arch/arm64/boot/dts -name "*.dtb" -exec cp --parents {} dist/ \; 2>/dev/null || true
+          # Modules (stripped)
+          make ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-androidkernel- \
+            LLVM=1 LLVM_IAS=1 INSTALL_MOD_STRIP=1 \
+            modules_install INSTALL_MOD_PATH=dist/modules 2>&1 | tail -5 || true
+          (cd dist/modules && tar czf ../modules.tar.gz .) 2>/dev/null || true
+          rm -rf dist/modules
+          du -sh dist/*
+          echo "PACKAGE_OK"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-${{ inputs.variant }}-${{ inputs.tag }}
+          path: |
+            dist/**
+            build.log
+          if-no-files-found: error
