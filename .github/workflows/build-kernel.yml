@@ -32,11 +32,6 @@ on:
         options:
           - user
           - userdebug
-      ksu_version:
-        description: KernelSU-Next version (tag/commit, or empty = latest tag)
-        default: ""
-        required: false
-        type: string
 
 concurrency:
   group: build-kernel-${{ github.ref }}
@@ -112,24 +107,28 @@ jobs:
           "${CLANG_BIN}/clang" --version | head -1
           echo "LLVM_TOOLCHAIN_READY"
 
-      - name: Integrate KernelSU-Next
+      - name: Integrate KernelSU v1.0.2 (classic layout)
         run: |
-          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s ${{ inputs.ksu_version }}
-          ls -la KernelSU-Next | head
+          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/v1.0.2/kernel/setup.sh" | bash -s v1.0.2
+          ls -la KernelSU | head
           ls -la drivers/kernelsu 2>/dev/null || echo "WARN: no drivers/kernelsu symlink"
+          grep -n "kernelsu" drivers/Makefile drivers/Kconfig
 
-      - name: Integrate SUSFS (simonpunk)
+      - name: Integrate SUSFS v1.5.5 (kernel-5.4 branch)
         run: |
-          git clone --depth 1 https://gitlab.com/simonpunk/susfs4ksu susfs4ksu
-          cp susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch KernelSU-Next/
+          git clone --depth 1 -b kernel-5.4 https://gitlab.com/simonpunk/susfs4ksu susfs4ksu
+          # --- main kernel side ---
           cp susfs4ksu/kernel_patches/50_add_susfs_in_kernel-5.4.patch .
           cp susfs4ksu/kernel_patches/fs/susfs.c fs/
           cp susfs4ksu/kernel_patches/include/linux/susfs.h include/linux/
-          echo "--- applying 10_enable_susfs_for_ksu.patch (in KernelSU-Next) ---"
-          cd KernelSU-Next && patch -p1 --forward < 10_enable_susfs_for_ksu.patch
-          cd ..
           echo "--- applying 50_add_susfs_in_kernel-5.4.patch ---"
           patch -p1 --forward < 50_add_susfs_in_kernel-5.4.patch
+          # --- KSU driver side (classic KernelSU dir at kernel root) ---
+          cp susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch KernelSU/
+          echo "--- applying 10_enable_susfs_for_ksu.patch (in KernelSU/) ---"
+          cd KernelSU && patch -p1 --forward < 10_enable_susfs_for_ksu.patch
+          cd ..
+          grep -q "CONFIG_KSU_SUSFS" KernelSU/kernel/Kconfig && echo "KSU_SUSFS_KCONFIG_OK"
           echo "SUSFS_OK"
 
       - name: Generate defconfig (${{ inputs.variant }})
@@ -154,10 +153,17 @@ jobs:
             -e CONFIG_KSU_SUSFS \
             -e CONFIG_KSU_SUSFS_SUS_PATH \
             -e CONFIG_KSU_SUSFS_SUS_MOUNT \
+            -e CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT \
+            -e CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT \
             -e CONFIG_KSU_SUSFS_SUS_KSTAT \
-            -e CONFIG_KSU_SUSFS_SUS_MAPS \
+            -e CONFIG_KSU_SUSFS_SUS_OVERLAYFS \
             -e CONFIG_KSU_SUSFS_TRY_UMOUNT \
-            -e CONFIG_KSU_SUSFS_SPOOF_UNAME
+            -e CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT \
+            -e CONFIG_KSU_SUSFS_SPOOF_UNAME \
+            -e CONFIG_KSU_SUSFS_ENABLE_LOG \
+            -e CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
+            -e CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
+            -e CONFIG_KSU_SUSFS_OPEN_REDIRECT
           make ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- \
             LLVM=1 LLVM_IAS=1 olddefconfig
           grep -E "CONFIG_KSU|CONFIG_KSU_SUSFS" .config | head -30
