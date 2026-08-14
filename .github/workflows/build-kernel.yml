@@ -223,6 +223,14 @@ jobs:
         run: |
           ./scripts/config --file .config -e CONFIG_KSU
 
+      - name: Match stock (disable RELR — stock tree has no RELR support)
+        run: |
+          # Stock -1-3 config has NO CONFIG_RELR at all; olddefconfig on the
+          # -1-2 tree enables it by default. RELR changes kernel relocation
+          # format and can fail very early on this ABL → bootloop at logo.
+          ./scripts/config --file .config -d CONFIG_RELR -d CONFIG_TOOLS_SUPPORT_RELR
+          grep -E "CONFIG_RELR" .config || echo "RELR_DISABLED"
+
       - name: Enable SUSFS configs
         if: inputs.ksu != 'none' && inputs.susfs != 'none'
         run: |
