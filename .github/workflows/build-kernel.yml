@@ -252,18 +252,20 @@ jobs:
 
       - name: Build kernel
         run: |
-          set -o pipefail
           export PATH="${CLANG_BIN}:/usr/lib/ccache:$PATH"
           export CLANG_TRIPLE=aarch64-linux-gnu-
           export CCACHE=1
+          # Redirect to build.log instead of piping through tee: GH Actions log
+          # streaming can SIGPIPE clang/LLVM on huge outputs (esp. LTO/ThinLTO)
+          # causing "LLVM ERROR: IO failure on output stream: Broken pipe".
           make ARCH=arm64 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- \
             CROSS_COMPILE=aarch64-linux-gnu- \
             HOSTCC=gcc HOSTLD=ld HOSTAR=ar \
             KCFLAGS="-Wno-implicit-int -Wno-int-conversion -Wno-strict-prototypes -Wno-typedef-redefinition -Wno-gnu-variable-sized-type-not-at-end -Wno-shift-negative-value" \
-            LLVM=1 LLVM_IAS=1 -j$(nproc) 2>&1 | tee build.log
+            LLVM=1 LLVM_IAS=1 -j$(nproc) > build.log 2>&1 || { echo "=== BUILD FAILED — last 100 lines ==="; tail -100 build.log; exit 1; }
           echo "--- outputs ---"
           ls -la arch/arm64/boot/
-          test -f arch/arm64/boot/Image -o -f arch/arm64/boot/Image.gz || { echo "NO_KERNEL_IMAGE"; exit 1; }
+          test -f arch/arm64/boot/Image -o -f arch/arm64/boot/Image.gz || { echo "NO_KERNEL_IMAGE"; tail -50 build.log; exit 1; }
           echo "BUILD_DONE"
 
       - name: Package outputs
