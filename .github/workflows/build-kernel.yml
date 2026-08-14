@@ -93,7 +93,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: prebuilts
-          key: tc-v3-${{ runner.arch }}
+          key: tc-v4-${{ runner.arch }}-clang${{ inputs.toolchain }}
 
       - name: Cache ccache
         id: cache-ccache
