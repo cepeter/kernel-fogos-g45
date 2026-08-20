@@ -77,20 +77,14 @@ jobs:
       CCACHE_DIR: ${{ github.workspace }}/.ccache
     steps:
       - name: Checkout kernel source
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.tag }}
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Fetch upstream tag if needed
         run: |
-          # If checkout failed (tag not in fork), fetch from upstream
-          if [ ! -f Makefile ]; then
-            git remote add upstream https://github.com/MotorolaMobilityLLC/kernel-msm.git || true
-            git fetch upstream tag ${{ inputs.tag }} --depth=1
-            git checkout ${{ inputs.tag }}
-          fi
+          git init
+          git remote add origin https://github.com/cepeter/kernel-fogos-g45.git
+          git remote add upstream https://github.com/MotorolaMobilityLLC/kernel-msm.git
+          # Try fork first, fallback to upstream
+          git fetch --depth=1 origin ${{ inputs.tag }} 2>/dev/null && git checkout ${{ inputs.tag }} || \
+          (git fetch --depth=1 upstream ${{ inputs.tag }} && git checkout ${{ inputs.tag }})
+          echo "Checked out: $(git log --oneline -1)"
 
       - name: Prepare toolchain dirs
         run: |
