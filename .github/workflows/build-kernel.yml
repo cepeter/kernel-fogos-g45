@@ -81,8 +81,6 @@ jobs:
         with:
           ref: ${{ inputs.tag }}
           fetch-depth: 1
-          # Fetch from upstream if tag not in fork
-          fetch-depth: 0
 
       - name: Fetch upstream tag if needed
         run: |
